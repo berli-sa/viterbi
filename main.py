@@ -1,5 +1,9 @@
 import torch
 import torch.optim as optim
+from torch.utils.data import DataLoader, TensorDataset
+import numpy as np
+import matplotlib.pyplot as plt
+from tqdm import tqdm
 from sklearn.model_selection import train_test_split
 from viterbinet import ViterbiNet
 from data_generator import generate_isi_data
@@ -10,9 +14,23 @@ l = 3
 num_states = 2 ** l
 hidden_dim = 64
 num_samples = 100000
-snr_db = 8
+snr_db = 16
+batch_size = 256
+num_epochs = 200
+lr = 0.001
+window_size = 3
+val_ratio = 0.2
+test_ratio = 0.1
+
+torch.manual_seed(42)
+np.random.seed(42)\
 
 Y, X_seq = generate_isi_data(num_samples, l , snr_db)
+
+"""
+Val and training sets split just by ratio, no loader used. Concern for mislabeling
+
+
 X_seq = X_seq[:len(Y)]
 X_labels = [int(''.join(str(int((s+1)//2)) for s in x), 2) for x in X_seq]
 
@@ -26,14 +44,42 @@ X_train_tensor = torch.tensor(X_train, dtype=torch.long)
 
 Y_val_tensor = torch.tensor(Y_val).float().unsqueeze(1)
 X_val_tensor = torch.tensor(X_val, dtype=torch.long)
+"""
+
+X_states = []
+for x in X_seq:
+    bits = [(int(s+1)//2) for s in x]
+    state = int(''.join(str(b) for b in bits), 2)
+    X_states.append(state)
+
+X_symbols = [(int(x[0]+1)//2) for x in X_seq]
+
+indecies = np.arange(len(Y))
+train_indecies, temp_indecies = train_test_split(indecies, test_size=val_ratio+test_ratio, random_state=42)
+val_indecies, test_indecies = train_test_split(temp_indecies, test_size=test_ratio/(val_ratio+test_ratio), random_state=42)
+
+Y_tensor = torch.tensor(Y, dtype=torch.float32).unsqueeze(1)
+X_states_tensor = torch.tensor(X_states, dtype=torch.long)
+
+train_dataset = TensorDataset(Y_tensor[train_indecies], X_states_tensor[train_indecies])
+val_dataset = TensorDataset(Y_tensor[val_indecies], X_states_tensor[val_indecies])
+test_dataset = TensorDataset(Y_tensor[test_indecies], X_states_tensor[test_indecies])
+
+train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+val_loader = DataLoader(val_dataset, batch_size=batch_size)
+test_loader = DataLoader(test_dataset, batch_size=batch_size)
+
+#End Loader Experiment
 
 model = ViterbiNet(input_dim=1, hidden_dim=hidden_dim, num_states=num_states)
-optimizer = optim.Adam(model.parameters(), lr=0.001)
-loss_fn = torch.nn.NLLLoss()
+optimizer = optim.Adam(model.parameters(), lr=lr)
+scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=5, verbose=True)
+loss_fn = torch.nn.CrossEntropyLoss()
 
-best_val_acc = 0
 print("Training ViterbiNet...")
-for epoch in range(20):
+
+"""
+for epoch in range(100):
     model.train()
     optimizer.zero_grad()
     log_probs = model(Y_train_tensor)
@@ -52,23 +98,140 @@ for epoch in range(20):
         val_acc = (val_preds == X_val_tensor).float().mean().item()
 
     print(f"Epoch {epoch+1}/{10} - Train Loss: {loss.item():.4f} | Train Acc: {train_acc:.4f} | Val Loss: {val_loss.item():.4f} | Val Acc: {val_acc:.4f}")
+"""
+train_losses = []
+val_losses = []
+train_accs = []
+val_accs = []
+best_val_acc = 0
+patience = 15
+patience_count = 0
+
+for epoch in range(num_epochs):
+    model.train()
+    train_loss = 0
+    train_correct = 0
+    train_total = 0
+
+    for inputs, targets in tqdm(train_loader, desc = f"Epoch {epoch+1}/{num_epochs}"):
+        if window_size > 1:
+            batch_size = inputs.size(0)
+            windowed_inputs = torch.zeros(batch_size, window_size)
+
+            half_window = window_size // 2
+            for i in range(batch_size):
+                for w in range(window_size):
+                    idx = min(max(0, i - half_window + w), batch_size - 1)
+                    windowed_inputs[i, w] = inputs[idx]
+            
+            outputs = model(windowed_inputs)
+        else: 
+            outputs = model(inputs)
+        
+        loss = loss_fn(outputs, targets)
+
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+
+        train_loss += loss.item() * inputs.size(0)
+        pred = outputs.argmax(dim=1)
+        train_correct += (pred == targets).sum().item()
+        train_total += targets.size(0)
+
+    train_loss /= len(train_loader.dataset)
+    train_acc = train_correct / train_total
+    train_losses.append(train_loss)
+    train_accs.append(train_accs)
+
+
+    model.eval()
+    val_loss = 0
+    val_correct = 0
+    val_total = 0
+
+    with torch.no_grad():
+        for inputs, targets in val_loader:
+            if window_size > 1:
+                batch_size = inputs.size(0)
+                windowed_inputs = torch.zeros(batch_size, window_size)
+
+                half_window = window_size // 2
+                for i in range(batch_size):
+                    for w in range(window_size):
+                        idx = min(max(0, i - half_window + w), batch_size - 1)
+                        windowed_inputs[i, w] = inputs[idx]
+                
+                outputs = model(windowed_inputs)
+            else: 
+                outputs = model(inputs)
+            
+            loss = loss_fn(outputs, targets)
+
+            val_loss += loss.item() * inputs.size(0)
+            pred = outputs.argmax(dim=1)
+            val_correct += (pred == targets).sum().item()
+            val_total += targets.size(0)
+    
+    val_loss /= len(val_loader.dataset)
+    val_acc = val_correct / val_total
+    val_losses.append(val_loss)
+    val_accs.append(val_acc)
+    
+    scheduler.step(val_acc)
+
+    print(f"Epoch {epoch+1}/{num_epochs} - "
+            f"Train Loss: {train_loss:.4f}, Train Acc: {train_acc:.4f}, "
+            f"Val Loss: {val_loss:.4f}, Val Acc: {val_acc:.4f}")
+    
+    if val_acc > best_val_acc:
+        best_val_acc = val_acc
+        patience_count = 0
+
+        # torch.save(model.state_dict(), "best_viterbinet.pt")
+        # print(f"New best model validation accuracy: {val_acc:.4f}")
+    else:
+        patience_count += 1
+        if patience_count >= patience:
+            print(f"Early stop after {patience} epochs w/o improvement")
+            break
 
 print("Fitting GMM on observed outputs...")
-gmm = GMMMarginal(num_components=5)
-gmm.fit(Y_train_tensor)
+gmm = GMMMarginal(num_components=8)
+gmm.fit(Y_tensor[val_indecies]) #train or val set to be used? train probably, right? it's bigger?
+
+# true_bits = [(int((x[0] + 1) // 2)) for x in [X_seq[i] for i in range(len(Y)) if Y[i] in Y_val]]
+# symbol_map = {0: -1, 1: 1}
+# true_symbols = [symbol_map[b] for b in true_bits[:len(decoded)]]
+
+print("Testing...")
+test_Y = Y_tensor[test_indecies]
+
+test_X = np.array([X_symbols[i] for i in test_indecies])
+symbol_map = {0: -1, 1: 1}
+true_symbols = np.array([symbol_map[b] for b in test_X])
 
 print("Running Viterbi decoding...")
-decoded = decode_with_viterbinet(model, Y_val_tensor, gmm, l)\
+# decoded = decode_with_viterbinet(model, Y_val_tensor, gmm, l)
+decoded = decode_with_viterbinet(model, test_Y, gmm, l, window_size=window_size)
 
-print("\nDecoded symbols (first 20):")
-print(decoded[:20])
+# print("\nDecoded symbols (first 20):")
+# print(decoded[:20])
 
-true_bits = [(int((x[0] + 1) // 2)) for x in [X_seq[i] for i in range(len(Y)) if Y[i] in Y_val]]
-symbol_map = {0: -1, 1: 1}
-true_symbols = [symbol_map[b] for b in true_bits[:len(decoded)]]
+# print("True symbols (first 20):")
+# print(true_symbols[:20])
 
-print("True symbols (first 20):")
-print(true_symbols[:20])
+# accuracy = sum([a == b for a, b in zip(decoded, true_symbols)]) / len(decoded)
+# print(f"\nSymbol accuracy: {accuracy * 100:.2f}%")
 
-accuracy = sum([a == b for a, b in zip(decoded, true_symbols)]) / len(decoded)
-print(f"\nSymbol accuracy: {accuracy * 100:.2f}%")
+min_len = min(len(decoded), len(true_symbols))
+decoded = decoded[:min_len]
+true_symbols = true_symbols[:min_len]
+
+accuracy = np.mean(np.array(decoded) == np.array(true_symbols))
+print(f"Symbol accuracy: {accuracy * 100:.2f}%")
+
+print("\nConfusion matrix:")
+from sklearn.metrics import confusion_matrix
+cm = confusion_matrix(true_symbols, decoded)
+print(cm)
