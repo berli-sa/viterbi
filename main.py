@@ -9,22 +9,23 @@ from viterbinet import ViterbiNet
 from data_generator import generate_isi_data
 from mixture_model import GMMMarginal
 from viterbi_decoder import decode_with_viterbinet
+from kde_model import KDEMarginal
 
 l = 3
 num_states = 2 ** l
-hidden_dim = 64
+hidden_dim = 20
 num_samples = 100000
 snr_db = 16
 batch_size = 256
 window_size = 3
-num_epochs = 200
+num_epochs = 20
 lr = 0.001
 window_size = 3
 val_ratio = 0.2
 test_ratio = 0.1
 
 torch.manual_seed(42)
-np.random.seed(42)\
+np.random.seed(42)
 
 Y, X_seq = generate_isi_data(num_samples, l , snr_db)
 
@@ -174,13 +175,15 @@ for epoch in range(num_epochs):
 
 model.load_state_dict(torch.load("best_viterbinet.pt"))
 
-print("Fitting GMM on observed outputs...")
-gmm = GMMMarginal(num_components=8)
-gmm.fit(Y_train_tensor) 
+print("Fitting KDE on observed outputs...")
+# gmm = GMMMarginal(num_components=8)
+# gmm.fit(Y_train_tensor) 
+kde = KDEMarginal(bandwidth=0.3)
+kde.fit(Y_train_tensor)
 
 print("Running Viterbi decoding...")
 # decoded = decode_with_viterbinet(model, Y_val_tensor, gmm, l)
-decoded = decode_with_viterbinet(model, Y_val_tensor, gmm, l)
+decoded = decode_with_viterbinet(model, Y_val_tensor, kde, l)
 
 true_bits = [(int((x[0] + 1) // 2)) for x in [X_seq[i] for i in range(len(Y)) if Y[i] in Y_val]]
 symbol_map = {0: -1, 1: 1}
