@@ -1,4 +1,4 @@
-**﻿ViterbiNet python implementation**
+********﻿ViterbiNet python implementation********
 
 This project implements a ViterbiNet-based symbol detector for communication systems with noise. It is designed to evaluate the performance of the model in terms of accuracy and Bit Error Rate (BER) under different SNR (Signal-to-Noise Ratio) conditions.
 
