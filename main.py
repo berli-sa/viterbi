@@ -22,6 +22,9 @@ if not os.path.exists(output_file):
         writer = csv.writer(f)
         writer.writerow(["l", "snr_db", "accuracy"])
 
+l_values = range(2, 10)        
+snr_values = range(-6, 11)  
+
 hidden_dim = 20
 num_samples = 100000
 batch_size = 256
@@ -147,10 +150,7 @@ def run_one(l, snr_db):
     from sklearn.metrics import confusion_matrix
     cm = confusion_matrix(X_val[:-1], states)
     print(cm)
-    return accuracy
-
-l_values = range(2, 10)        
-snr_values = range(-6, 11)      
+    return accuracy    
 
 results = {}  
 
