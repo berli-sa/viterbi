@@ -69,11 +69,6 @@ def compute_log_likelihoods(p_s_given_y_log, log_p_y, l):
     l: memory length
     """
 
-    # num_states = p_s_given_y_log.shape[1]
-    # log_p_s= -torch.log(torch.tensor(float(num_states)))
-    # log_joint = p_s_given_y_log + log_p_y.unsqueeze(1)
-    # log_p_y_given_s = log_joint - log_p_s
-
     log_p_y_expanded = log_p_y.unsqueeze(1).expand_as(p_s_given_y_log)
 
     log_p_y_given_s = p_s_given_y_log + log_p_y_expanded - np.log(1/8)
