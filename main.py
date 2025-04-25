@@ -22,10 +22,8 @@ if not os.path.exists(output_file):
         writer = csv.writer(f)
         writer.writerow(["l", "snr_db", "accuracy"])
 
-# l = 3
 hidden_dim = 20
 num_samples = 100000
-# snr_db = -4
 batch_size = 256
 window_size = 3
 num_epochs = 10
@@ -151,10 +149,10 @@ def run_one(l, snr_db):
     print(cm)
     return accuracy
 
-l_values = range(2, 10)         # l from 2 to 10
-snr_values = range(-6, 11)      # SNR from -6 to 10
+l_values = range(2, 10)        
+snr_values = range(-6, 11)      
 
-results = {}  # Dictionary to store accuracies for each l
+results = {}  
 
 for l in l_values:
     accuracies = []

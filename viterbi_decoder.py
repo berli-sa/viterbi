@@ -62,12 +62,6 @@ def decode_with_viterbinet(model, Y_seq, X_seq, gmm_model, l, symbol_map={0: -1,
     return decoded_symbols, decoded_states[1:]
 
 def compute_log_likelihoods(p_s_given_y_log, log_p_y, l):
-    """
-    Assume uniform p(s)
-    p_s_given_y_log: (T, num_states), log p(s | y[i]), softmax output
-    log_p_y: from GMM
-    l: memory length
-    """
 
     log_p_y_expanded = log_p_y.unsqueeze(1).expand_as(p_s_given_y_log)
 
